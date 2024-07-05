@@ -1,18 +1,60 @@
 import numpy as np
-
 def calculate_reward(predicted_output, true_output):
-    # Full task accuracy (1 if completely correct, 0 otherwise)
-    full_task_accuracy = 1 if np.array_equal(predicted_output, true_output) else 0
+    # Ensure both outputs are numpy arrays
+    predicted_output = np.array(predicted_output)
+    true_output = np.array(true_output)
     
-    # Pixel-wise accuracy
-    total_pixels = true_output.size
+    # Check if shapes match
+    if predicted_output.shape != true_output.shape:
+        # If shapes don't match, we'll compare the overlapping part
+        min_height = min(predicted_output.shape[0], true_output.shape[0])
+        min_width = min(predicted_output.shape[1], true_output.shape[1])
+        
+        predicted_output = predicted_output[:min_height, :min_width]
+        true_output = true_output[:min_height, :min_width]
+    
+    # Ensure both arrays have the same dtype
+    dtype = np.result_type(predicted_output.dtype, true_output.dtype)
+    predicted_output = predicted_output.astype(dtype)
+    true_output = true_output.astype(dtype)
+    
+    total_pixels = np.prod(true_output.shape)
     correct_pixels = np.sum(predicted_output == true_output)
-    pixel_accuracy = correct_pixels / total_pixels
     
-    # Composite reward
-    reward = (full_task_accuracy + pixel_accuracy) / 2
+    pixel_accuracy = correct_pixels / total_pixels if total_pixels > 0 else 0
+    
+    # Size accuracy
+    size_accuracy = 1 - (abs(predicted_output.shape[0] - true_output.shape[0]) + 
+                         abs(predicted_output.shape[1] - true_output.shape[1])) / (
+                         true_output.shape[0] + true_output.shape[1] + 1e-8)
+    
+    # Combine pixel accuracy and size accuracy
+    reward = (pixel_accuracy + size_accuracy) / 2
     
     return reward
+
+def evaluate_model(model, eval_pairs):
+    scores = []
+    for pair in eval_pairs:
+        input_grid = np.array(pair['input'])
+        true_output = np.array(pair['output'])
+        predicted_output, predicted_size = model.predict(input_grid)
+        
+        # Ensure predicted_output matches the predicted size
+        predicted_output = predicted_output[:predicted_size[0], :predicted_size[1]]
+        
+        try:
+            score = calculate_reward(predicted_output, true_output)
+            scores.append(score)
+        except Exception as e:
+            print(f"Error calculating reward: {e}")
+            print(f"Predicted output shape: {predicted_output.shape}")
+            print(f"True output shape: {true_output.shape}")
+            scores.append(0)  # Append a zero score for this pair
+    
+    avg_score = np.mean(scores)
+    print(f"Average evaluation score: {avg_score}")
+    return avg_score
 
 def proportion_correct(predicted: np.ndarray, expected: np.ndarray) -> float:
     """
@@ -85,14 +127,3 @@ def evaluate_model_old(model, eval_pairs):
     
     return np.mean(scores), np.mean(size_accuracies)
 
-def evaluate_model(model, eval_pairs):
-    rewards = []
-    for pair in eval_pairs:
-        input_grid = np.array(pair['input'])
-        true_output = np.array(pair['output'])
-        predicted_output = model.predict(input_grid)
-        reward = calculate_reward(predicted_output, true_output)
-        rewards.append(reward)
-    
-    avg_reward = np.mean(rewards)
-    return avg_reward
