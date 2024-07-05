@@ -1,4 +1,5 @@
 import numpy as np
+import torch.nn.functional as F
 class ARCLoss:
     @staticmethod
     def binary_loss(predicted: np.ndarray, expected: np.ndarray) -> float:
@@ -9,3 +10,7 @@ class ARCLoss:
         if predicted.shape != expected.shape:
             return np.sum(expected.shape)  # Penalize incorrect shape predictions
         return np.sum(np.abs(predicted - expected))
+    
+    @staticmethod
+    def size_prediction_loss(predicted_size, true_size):
+        return F.mse_loss(predicted_size.float(), true_size.float())

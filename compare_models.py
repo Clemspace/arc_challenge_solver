@@ -1,8 +1,8 @@
-from config.config import EVAL_DIR, TRAIN_DIR
-from data.arc_dataloader import ARCDataLoader
-from models.ppo_model import PPOModel
-from models.random_model import RandomModel
-from utils.experiment import ARCExperiment
+from arc_challenge_solver.config.config import EVAL_DIR, TRAIN_DIR
+from arc_challenge_solver.data.arc_dataloader import ARCDataLoader
+from arc_challenge_solver.models.ppo_model import PPOModel
+from arc_challenge_solver.models.random_model import RandomModel
+from arc_challenge_solver.utils.experiment import ARCExperiment
 import matplotlib.pyplot as plt
 
 def compare_models(models, task):

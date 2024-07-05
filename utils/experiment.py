@@ -1,11 +1,11 @@
 import matplotlib.pyplot as plt
-from data.arc_task import ARCTask
-from utils.loss_functions import ARCLoss
-from utils.visualizer import ARCVisualizer
+from arc_challenge_solver.data.arc_task import ARCTask
+from arc_challenge_solver.utils.loss_functions import ARCLoss
+from arc_challenge_solver.utils.visualizer import ARCVisualizer
 from tqdm import tqdm
-from models.base_model import ARCModel
+from arc_challenge_solver.models.base_model import ARCModel
 import numpy as np
-from models.ppo_model import PPOModel
+from arc_challenge_solver.models.ppo_model import PPOModel
 class ARCExperiment:
     def __init__(self, task: ARCTask, model: ARCModel, visualize: bool = False):
         self.task = task
@@ -21,6 +21,7 @@ class ARCExperiment:
     def evaluate(self):
         binary_losses = []
         abs_diff_losses = []
+        size_accuracies = []
         for pair in tqdm(self.task.eval_pairs, desc="Evaluating"):
             input_grid = np.array(pair['input'])
             expected_output = np.array(pair['output'])
@@ -35,15 +36,21 @@ class ARCExperiment:
             self.eval_losses.append(abs_diff_loss)
             self.eval_rewards.append(-abs_diff_loss)  # Negative loss as reward
             
+            size_accuracy = 1 - (abs(predicted_output.shape[0] - expected_output.shape[0]) + 
+                                abs(predicted_output.shape[1] - expected_output.shape[1])) / (
+                                expected_output.shape[0] + expected_output.shape[1])
+            size_accuracies.append(size_accuracy)
+            
             if self.visualize:
                 ARCVisualizer.visualize_comparison(input_grid, expected_output, predicted_output, binary_loss, abs_diff_loss)
         
         accuracy = (len(binary_losses) + sum(binary_losses)) / len(binary_losses)
         avg_abs_diff_loss = np.mean(abs_diff_losses)
+        avg_size_accuracy = np.mean(size_accuracies)
         
         self.plot_results()
         
-        return accuracy, avg_abs_diff_loss
+        return accuracy, avg_abs_diff_loss, avg_size_accuracy
 
     def plot_results(self):
         plt.figure(figsize=(15, 10))

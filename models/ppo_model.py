@@ -1,66 +1,96 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.distributions import Categorical
-import gymnasium as gym
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict
+from torch.distributions import Categorical
 from tqdm import tqdm
+from arc_challenge_solver.utils.loss_functions import ARCLoss  # Added for metric calculation
+import nni  # Added for NNI reporting
+from arc_challenge_solver.utils.checkpoint import save_checkpoint, load_checkpoint
 
 
 
 class PPONetwork(nn.Module):
-    def __init__(self, input_dim=900, hidden_dim=256, num_colors=10):
+    def __init__(self, input_dim=900, hidden_dim=256, num_layers=3, num_colors=10):
         super().__init__()
         self.num_colors = num_colors
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(64, num_colors, kernel_size=3, padding=1)
+        
+        self.conv1 = nn.Conv2d(1, hidden_dim, kernel_size=3, padding=1)
         self.relu = nn.ReLU()
         
-        self.critic = nn.Sequential(
-            nn.Conv2d(64, 32, kernel_size=3, padding=1),
+        self.hidden_layers = nn.ModuleList()
+        for _ in range(num_layers):
+            self.hidden_layers.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1))
+            self.hidden_layers.append(nn.ReLU())
+        
+        self.action_layer = nn.Conv2d(hidden_dim, num_colors, kernel_size=3, padding=1)
+        self.value_layer = nn.Sequential(
+            nn.Conv2d(hidden_dim, hidden_dim // 2, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 1, kernel_size=3, padding=1)
+            nn.Conv2d(hidden_dim // 2, 1, kernel_size=3, padding=1)
+        )
+        
+        # New layers for predicting output size
+        self.size_predictor = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(hidden_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 2)  # Predict height and width
         )
 
     def forward(self, x):
-        # x shape: (batch_size, 1, 30, 30)
         x = self.relu(self.conv1(x))
-        x = self.relu(self.conv2(x))
-        action_logits = self.conv3(x)  # shape: (batch_size, num_colors, 30, 30)
-        value = self.critic(x).squeeze(1)  # shape: (batch_size, 30, 30)
+        for layer in self.hidden_layers:
+            x = layer(x)
+        action_logits = self.action_layer(x)
+        value = self.value_layer(x).squeeze(1)
         
-        return action_logits, value
+        # Predict output size
+        size_logits = self.size_predictor(x)
+        
+        return action_logits, value, size_logits
 
     def act(self, state):
         state = torch.FloatTensor(state).unsqueeze(0)
-        action_logits, value = self.forward(state)
-        action_probs = F.softmax(action_logits, dim=-1)
-        dist = torch.distributions.Categorical(action_probs)
+        action_logits, value, size_logits = self.forward(state)
+        action_probs = torch.softmax(action_logits, dim=1)
+        dist = Categorical(action_probs)
         action = dist.sample()
-        return action.item(), dist.log_prob(action), value.squeeze()
+        size = torch.clamp(size_logits, min=1, max=30).int()
+        return action.item(), dist.log_prob(action), value.squeeze(), size.squeeze()
 
     def evaluate(self, state, action):
         state = torch.FloatTensor(state)
-        action_logits, value = self.forward(state)
-        action_probs = F.softmax(action_logits, dim=-1)
-        dist = torch.distributions.Categorical(action_probs)
+        action_logits, value, size_logits = self.forward(state)
+        action_probs = torch.softmax(action_logits, dim=1)
+        dist = Categorical(action_probs)
         action_log_probs = dist.log_prob(action)
         dist_entropy = dist.entropy()
-        return action_log_probs, torch.squeeze(value), dist_entropy
-
+        size = torch.clamp(size_logits, min=1, max=30).int()
+        return action_log_probs, torch.squeeze(value), dist_entropy, size
 class PPOModel:
-    def __init__(self, train_pairs: List[Dict], device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, train_pairs: List[Dict], hidden_dim=256, num_layers=3, learning_rate=3e-4, batch_size=64, num_epochs=100, device='cuda' if torch.cuda.is_available() else 'cpu'):
         self.device = device
         self.num_colors = 10  # Assuming 10 color options in ARC
-        self.policy = PPONetwork(num_colors=self.num_colors).to(device)
-        self.optimizer = optim.Adam(self.policy.parameters(), lr=3e-4)
+        self.policy = PPONetwork(hidden_dim=hidden_dim, num_layers=num_layers, num_colors=self.num_colors).to(device)
+        self.optimizer = optim.Adam(self.policy.parameters(), lr=learning_rate)
         self.train_pairs = train_pairs
         self.max_grid_size = 30
         self.training_losses = []
         self.training_rewards = []
+        self.num_epochs = num_epochs
+        self.batch_size = batch_size
         self.preprocess_data()
+        
+    def save_checkpoint(self, epoch: int, score: float, filename: str):
+        save_checkpoint(self.policy, self.optimizer, epoch, score, filename)
+
+    def load_checkpoint(self, filename: str):
+        checkpoint = load_checkpoint(self.policy, self.optimizer, filename)
+        self.best_score = checkpoint['score']
+        self.best_epoch = checkpoint['epoch']
 
     def preprocess_data(self):
         self.processed_inputs = []
@@ -79,24 +109,40 @@ class PPOModel:
 
         self.processed_inputs = torch.FloatTensor(np.array(self.processed_inputs)).unsqueeze(1).to(self.device)
         self.processed_outputs = torch.LongTensor(np.array(self.processed_outputs)).to(self.device)
-
-    def train(self, num_epochs=100, batch_size=64):
-        for epoch in tqdm(range(num_epochs), desc="Training PPO"):
+            
+    def train(self):
+        for epoch in tqdm(range(self.num_epochs), desc="Training PPO"):
             epoch_losses = []
             epoch_rewards = []
             indices = torch.randperm(len(self.processed_inputs))
-            for start_idx in range(0, len(indices), batch_size):
-                batch_indices = indices[start_idx:start_idx+batch_size]
+            for start_idx in range(0, len(indices), self.batch_size):
+                batch_indices = indices[start_idx:start_idx+self.batch_size]
                 states = self.processed_inputs[batch_indices]
                 true_actions = self.processed_outputs[batch_indices]
 
-                action_logits, state_values = self.policy(states)
+                action_logits, state_values, size_logits = self.policy(states)
+                predicted_size = torch.clamp(size_logits, min=1, max=30)
+                true_size = torch.tensor([[o.shape[0], o.shape[1]] for o in true_actions]).to(self.device)
+
                 action_probs = torch.softmax(action_logits, dim=1)
                 dist = Categorical(action_probs.permute(0, 2, 3, 1))
-                actions = dist.sample()
+                
+                # Sample actions based on predicted size
+                actions = []
+                for i, (probs, size) in enumerate(zip(action_probs, predicted_size)):
+                    h, w = size.int()
+                    actions.append(dist.sample((h, w)))
+                actions = torch.stack(actions)
+
                 log_probs = dist.log_prob(actions)
 
-                advantages = (true_actions.float() - state_values)
+                # Calculate advantages using variable-sized true actions
+                advantages = []
+                for i, (true_action, value) in enumerate(zip(true_actions, state_values)):
+                    h, w = true_action.shape
+                    adv = (true_action.float() - value[:h, :w])
+                    advantages.append(adv)
+                advantages = torch.stack(advantages)
 
                 ratio = (log_probs - log_probs.detach()).exp()
                 surr1 = ratio * advantages
@@ -104,8 +150,9 @@ class PPOModel:
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_loss = advantages.pow(2).mean()
                 entropy = dist.entropy().mean()
-
-                loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy
+                
+                size_loss = ARCLoss.size_prediction_loss(predicted_size, true_size)
+                loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy + 0.1 * size_loss
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -116,122 +163,27 @@ class PPOModel:
 
             self.training_losses.append(np.mean(epoch_losses))
             self.training_rewards.append(np.mean(epoch_rewards))
+            
+            nni.report_intermediate_result(np.mean(epoch_rewards))
 
     def predict(self, input_grid: np.ndarray) -> np.ndarray:
         with torch.no_grad():
             padded_input = np.zeros((self.max_grid_size, self.max_grid_size))
             padded_input[:input_grid.shape[0], :input_grid.shape[1]] = input_grid
             state = torch.FloatTensor(padded_input).unsqueeze(0).unsqueeze(0).to(self.device)
-            action_logits, _ = self.policy(state)
+            action_logits, _, size_logits = self.policy(state)
             actions = action_logits.argmax(dim=1).squeeze(0)
-        return actions.cpu().numpy()[:input_grid.shape[0], :input_grid.shape[1]]
-
-
+            predicted_size = torch.clamp(size_logits.squeeze(), min=1, max=30).int()
+            h, w = predicted_size.cpu().numpy()
+        return actions.cpu().numpy()[:h, :w]
     
-    def update_policy(self, states, actions, rewards, dones, old_log_probs, values, clip_param=0.2):
-        returns = self.compute_returns(rewards, dones)
-        advantages = returns - values
-        
-        total_loss = 0
-        for _ in range(4):  # 4 policy update iterations
-            action_probs, new_values = self.policy(torch.stack(states))
-            action_dist = Categorical(logits=action_probs)
-            new_log_probs = action_dist.log_prob(actions)
-            
-            ratio = (new_log_probs - old_log_probs).exp()
-            surr1 = ratio * advantages
-            surr2 = torch.clamp(ratio, 1.0 - clip_param, 1.0 + clip_param) * advantages
-            
-            actor_loss = -torch.min(surr1, surr2).mean()
-            critic_loss = nn.MSELoss()(new_values.squeeze(), returns)
-            entropy = action_dist.entropy().mean()
-            
-            loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy
-            
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            
-            total_loss += loss.item()
-        
-        avg_loss = total_loss / 4
-        avg_reward = rewards.mean().item()
-        
-        return avg_loss, avg_reward
+    def save_checkpoint(self, filepath):
+        torch.save({
+            'model_state_dict': self.policy.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+        }, filepath)
 
-
-
-    def collect_batch(self, batch_size):
-        states, actions, rewards, dones, log_probs, values = [], [], [], [], [], []
-        
-        for _ in range(batch_size):
-            state, _ = self.env.reset()
-            done = False
-            
-            while not done:
-                state_tensor = torch.FloatTensor(state).unsqueeze(0)
-                action_probs, value = self.policy(state_tensor)
-                action_dist = Categorical(logits=action_probs)
-                action = action_dist.sample()
-                
-                next_state, reward, done, _, _ = self.env.step(action.item())
-                
-                states.append(state)
-                actions.append(action.item())
-                rewards.append(reward)
-                dones.append(done)
-                log_probs.append(action_dist.log_prob(action))
-                values.append(value)
-                
-                state = next_state
-        
-        return (
-            torch.FloatTensor(np.array(states)),  # Convert to numpy array first
-            torch.LongTensor(actions),
-            torch.FloatTensor(rewards),
-            torch.BoolTensor(dones),
-            torch.stack(log_probs),
-            torch.cat(values)
-        )
-
-    def compute_returns(self, rewards, dones, gamma=0.99):
-        returns = torch.zeros_like(rewards)
-        running_return = 0
-        for t in reversed(range(len(rewards))):
-            running_return = rewards[t] + gamma * running_return * (1 - dones[t])
-            returns[t] = running_return
-        return returns
-
-    def update_policy(self, states, actions, rewards, dones, old_log_probs, values, clip_param=0.2):
-        returns = self.compute_returns(rewards, dones)
-        advantages = (returns - values).detach()
-        
-        for _ in range(4):  # 4 policy update iterations
-            action_probs, new_values = self.policy(states)
-            action_dist = Categorical(logits=action_probs)
-            new_log_probs = action_dist.log_prob(actions)
-            
-            ratio = (new_log_probs - old_log_probs.detach()).exp()
-            surr1 = ratio * advantages
-            surr2 = torch.clamp(ratio, 1.0 - clip_param, 1.0 + clip_param) * advantages
-            
-            actor_loss = -torch.min(surr1, surr2).mean()
-            critic_loss = nn.MSELoss()(new_values.squeeze(), returns)
-            entropy = action_dist.entropy().mean()
-            
-            loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy
-            
-            self.optimizer.zero_grad()
-            loss.backward(retain_graph=True)
-            self.optimizer.step()
-        
-        return loss.item(), rewards.mean().item()
-
-    def predict(self, input_grid: np.ndarray) -> np.ndarray:
-        with torch.no_grad():
-            padded_input = np.zeros((30, 30), dtype=np.int32)
-            padded_input[:input_grid.shape[0], :input_grid.shape[1]] = input_grid
-            state_tensor = torch.FloatTensor(padded_input).unsqueeze(0)
-            action_probs, _ = self.policy(state_tensor)
-            action = action_probs.argmax().item()
-        return np.full_like(input_grid, action)
+    def load_checkpoint(self, filepath):
+        checkpoint = torch.load(filepath)
+        self.policy.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

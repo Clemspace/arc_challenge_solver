@@ -1,4 +1,4 @@
-from models.base_model import ARCModel
+from arc_challenge_solver.models.base_model import ARCModel
 import numpy as np
 from typing import List, Dict, Tuple
 
