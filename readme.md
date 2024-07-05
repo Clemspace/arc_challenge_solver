@@ -15,6 +15,7 @@ The ARC Challenge presents a series of tasks that test an AI system's ability to
 - Reward function considering both grid content and size accuracy
 
 ## Project Structure
+```
 arc_challenge_solver/
 │
 ├── analysis.ipynb
@@ -52,27 +53,31 @@ arc_challenge_solver/
 ├── loss_functions.py
 ├── metrics.py
 └── visualizer.py
-
+```
 ## Setup
 
 1. Clone the repository:
+```   
 git clone https://github.com/clemspace/arc-challenge-solver.git
 cd arc-challenge-solver
-
+```
 1. Create a virtual environment and activate it:
+```   
 python -m venv venv
 source venv/bin/activate  # On Windows use venv\Scripts\activate
-
+```
 1. Install the required packages:
+```   
 pip install -r requirements.txt
-
+```
 1. Download the ARC dataset and place it in the appropriate directories under `data/evaluation/` and `data/training/`.
 
 ## Usage
 
 To run the Neural Architecture Search:
+```
 nnictl create --config nas/config.yml
-
+```
 This will start the NAS process using the configuration specified in `config.yml`. The search will explore different neural architectures and hyperparameters to optimize the PPO model's performance on ARC tasks.
 
 To run other components:
@@ -108,9 +113,7 @@ The NAS process optimizes the following hyperparameters:
 
 ## Results
 
-Current best reward: 0.5456464971814837 (starting from 0.0614475453538554)
-
-The significant improvement in reward suggests that the NAS process is effectively optimizing the model architecture and hyperparameters for the ARC tasks.
+Soon! Still cooking!
 
 ## Contributing
 

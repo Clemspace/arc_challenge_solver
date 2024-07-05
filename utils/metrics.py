@@ -35,6 +35,8 @@ def calculate_reward(predicted_output, true_output):
 
 def evaluate_model(model, eval_pairs):
     scores = []
+    perfect_solves = 0
+    total_tasks = len(eval_pairs)
     for pair in eval_pairs:
         input_grid = np.array(pair['input'])
         true_output = np.array(pair['output'])
@@ -46,15 +48,19 @@ def evaluate_model(model, eval_pairs):
         try:
             score = calculate_reward(predicted_output, true_output)
             scores.append(score)
+            if np.array_equal(predicted_output, true_output):
+                perfect_solves += 1
         except Exception as e:
             print(f"Error calculating reward: {e}")
             print(f"Predicted output shape: {predicted_output.shape}")
             print(f"True output shape: {true_output.shape}")
-            scores.append(0)  # Append a zero score for this pair
+            scores.append(0)
     
     avg_score = np.mean(scores)
+    perfect_solve_percentage = (perfect_solves / total_tasks) * 100
     print(f"Average evaluation score: {avg_score}")
-    return avg_score
+    print(f"Perfectly solved tasks: {perfect_solves}/{total_tasks} ({perfect_solve_percentage:.2f}%)")
+    return avg_score, perfect_solve_percentage
 
 def proportion_correct(predicted: np.ndarray, expected: np.ndarray) -> float:
     """
