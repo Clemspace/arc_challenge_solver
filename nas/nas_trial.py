@@ -40,7 +40,7 @@ def main():
         # Calculate num_epochs based on batch_size
         task = ARCDataLoader.load_tasks(TRAIN_DIR, EVAL_DIR)
         train_pairs = task.get_train_pairs()
-        target_steps = 1000  # Adjust this based on your desired total computation
+        target_steps = 5000  # Adjust this based on your desired total computation
         num_samples = len(train_pairs)
         num_epochs = max(1, int(target_steps / (num_samples / batch_size)))
         
