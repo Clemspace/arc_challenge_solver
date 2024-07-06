@@ -48,11 +48,11 @@ arc_challenge_solver/
 │   └── nas_trial.py
 │
 └── utils/
-├── checkpoint.py
-├── experiment.py
-├── loss_functions.py
-├── metrics.py
-└── visualizer.py
+    ├── checkpoint.py
+    ├── experiment.py
+    ├── loss_functions.py
+    ├── metrics.py
+    └── visualizer.py
 ```
 ## Setup
 
