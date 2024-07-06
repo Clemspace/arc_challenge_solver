@@ -5,15 +5,15 @@
     },
     "batch_size": {
         "_type": "choice",
-        "_value": [16, 32, 64, 128, 256]
+        "_value": [16, 32, 64, 128]
     },
     "num_layers": {
         "_type": "choice",
-        "_value": [2, 3, 4, 5, 6, 8, 10]
+        "_value": [2, 3, 4, 5, 6, 8]
     },
     "hidden_dim": {
         "_type": "choice",
-        "_value": [32, 64, 128, 256, 512, 1024]
+        "_value": [32, 64, 128, 256, 512]
     },
     "dropout_rate": {
         "_type": "uniform",

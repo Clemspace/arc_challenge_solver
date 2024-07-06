@@ -2,7 +2,7 @@ experimentName: ARC_NAS3
 trialCommand: python nas_trial.py
 trialCodeDirectory: .
 trialConcurrency: 1
-maxTrialNumber: 50
+maxTrialNumber: 100
 searchSpaceFile: search_space.json
 tuner:
   name: TPE
@@ -11,7 +11,3 @@ tuner:
 trainingService:
   platform: local
   useActiveGpu: true
-assessor:
-  name: Medianstop
-  classArgs:
-    optimize_mode: maximize
