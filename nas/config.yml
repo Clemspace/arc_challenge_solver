@@ -2,7 +2,7 @@ experimentName: ARC_NAS3
 trialCommand: python nas_trial.py
 trialCodeDirectory: .
 trialConcurrency: 1
-maxTrialNumber: 100
+maxTrialNumber: 150
 searchSpaceFile: search_space.json
 tuner:
   name: TPE

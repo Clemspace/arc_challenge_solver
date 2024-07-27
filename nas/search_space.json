@@ -1,19 +1,19 @@
 {
     "learning_rate": {
         "_type": "loguniform",
-        "_value": [1e-6, 1e-2]
+        "_value": [1e-5, 1e-3]
     },
     "batch_size": {
         "_type": "choice",
-        "_value": [16, 32, 64, 128]
+        "_value": [64, 128, 256, 512]
     },
     "num_layers": {
         "_type": "choice",
-        "_value": [2, 3, 4, 5, 6, 8]
+        "_value": [4, 6, 8, 10, 14, 18, 22]
     },
     "hidden_dim": {
         "_type": "choice",
-        "_value": [32, 64, 128, 256, 512]
+        "_value": [64, 128, 256, 512, 1024]
     },
     "dropout_rate": {
         "_type": "uniform",
@@ -21,18 +21,10 @@
     },
     "optimizer": {
         "_type": "choice",
-        "_value": ["adam", "sgd", "rmsprop"]
-    },
-    "activation": {
-        "_type": "choice",
-        "_value": ["relu", "leaky_relu", "elu", "swish"]
-    },
-    "skip_connections": {
-        "_type": "choice",
-        "_value": [true, false]
+        "_value": ["adam", "rmsprop"]
     },
     "weight_decay": {
         "_type": "loguniform",
-        "_value": [1e-6, 1e-2]
+        "_value": [1e-6, 1e-3]
     }
 }
